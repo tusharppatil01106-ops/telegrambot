@@ -358,7 +358,7 @@ async def add_to_faceoff_queue(query, context):
 async def faceoff_countdown(match_id, user_id, chat_id, context):
     msg = await context.bot.send_message(chat_id, "⚔️ Face-off starting...")
     for t in ["3️⃣", "2️⃣", "1️⃣", "🔥 GO!"]:
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.05)
         await msg.edit_text(f"⏳ {t}")
     await send_faceoff_question(match_id, user_id, chat_id, context)
 
@@ -672,7 +672,7 @@ async def mbroadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if replied:
         if replied.photo:
             media_type = "photo"
-            file_id = replied.photo[-1].file_id  # highest resolution
+            file_id = replied.photo[-1].file_id
         elif replied.video:
             media_type = "video"
             file_id = replied.video.file_id
@@ -690,9 +690,7 @@ async def mbroadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Fetch all users
     try:
-        response = requests.get(f"{USERS_TABLE_URL}?select=user_id", headers=HEADERS, timeout=30)
-        response.raise_for_status()
-        users = response.json()
+        users = fetch_all_users()
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to fetch users: {e}")
         return
@@ -724,6 +722,8 @@ async def mbroadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             success += 1
         except Exception:
             fail += 1
+
+        await asyncio.sleep(0.05)
 
         if (idx + 1) % 10 == 0 or (idx + 1) == len(users):
             try:
@@ -772,6 +772,38 @@ async def mark_read_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Remove button so they can't click twice
     await query.edit_message_reply_markup(reply_markup=None)
 
+def fetch_all_users():
+    """Fetches all users from Supabase, bypassing the 1000 row limit."""
+    all_users = []
+    offset = 0
+    limit = 1000
+
+    while True:
+        try:
+            response = requests.get(
+                f"{USERS_TABLE_URL}?select=user_id&limit={limit}&offset={offset}",
+                headers=HEADERS,
+                timeout=30
+            )
+            response.raise_for_status()
+            batch = response.json()
+
+            if not batch:
+                break
+
+            all_users.extend(batch)
+
+            if len(batch) < limit:
+                break
+
+            offset += limit
+
+        except Exception as e:
+            raise Exception(f"Failed at offset {offset}: {e}")
+
+    return all_users
+
+
 async def resend_unread(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Usage: /resend <broadcast_id> Your reminder message"""
     if update.effective_user.id != ADMIN_ID:
@@ -787,9 +819,7 @@ async def resend_unread(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Get all users
     try:
-        all_users_resp = requests.get(f"{USERS_TABLE_URL}?select=user_id", headers=HEADERS, timeout=30)
-        all_users_resp.raise_for_status()
-        all_user_ids = {u["user_id"] for u in all_users_resp.json()}
+        all_user_ids = {u["user_id"] for u in fetch_all_users()}
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to fetch users: {e}")
         return
@@ -825,8 +855,10 @@ async def resend_unread(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             fail += 1
 
-    await update.message.reply_text(f"✅ Resend done! Sent: {success} | Failed: {fail}")
+        await asyncio.sleep(0.05)
 
+    await update.message.reply_text(f"✅ Resend done! Sent: {success} | Failed: {fail}")
+    
 async def share_tracking_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
